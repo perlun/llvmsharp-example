@@ -1,11 +1,10 @@
-﻿namespace Kaleidoscope
-{
-    using System;
-    using System.Collections.Generic;
-    using System.Globalization;
-    using System.IO;
-    using System.Text;
+﻿using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Text;
 
+namespace Kaleidoscope
+{
     public sealed class Lexer : ILexer
     {
         private const int EOF = -1;
@@ -117,7 +116,7 @@
                     this.numberBuilder.Append((char)c);
                     c = this.reader.Read();
                 } while (char.IsDigit((char)c) || c == '.');
-                
+
                 this.numVal = double.Parse(this.numberBuilder.ToString());
                 this.numberBuilder.Clear();
                 this.CurrentToken = (int)Token.NUMBER;

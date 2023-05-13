@@ -1,11 +1,9 @@
-﻿using System.Diagnostics;
+﻿using System;
+using System.Collections.Generic;
+using Kaleidoscope.AST;
 
 namespace Kaleidoscope
 {
-    using System;
-    using System.Collections.Generic;
-    using AST;
-
     public sealed class Parser : IParser
     {
         private readonly Lexer scanner;
@@ -82,7 +80,7 @@ namespace Kaleidoscope
         private ExprAST ParseIdentifierExpr()
         {
             string idName = this.scanner.GetLastIdentifier();
-            
+
             this.scanner.GetNextToken();  // eat identifier.
 
             if (this.scanner.CurrentToken != '(') // Simple variable ref.
@@ -116,11 +114,11 @@ namespace Kaleidoscope
                         Console.WriteLine("Expected ')' or ',' in argument list");
                         return null;
                     }
-                    
+
                     this.scanner.GetNextToken();
                 }
             }
-            
+
             // Eat the ')'.
             this.scanner.GetNextToken();
 

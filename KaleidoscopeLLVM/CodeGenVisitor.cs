@@ -1,4 +1,6 @@
-﻿namespace KaleidoscopeLLVM
+﻿using LLVMSharp.Interop;
+
+namespace KaleidoscopeLLVM
 {
     using System;
     using System.Collections.Generic;
@@ -32,7 +34,7 @@
             this.valueStack.Clear();
         }
 
-        protected override ExprAST VisitNumberExprAST(NumberExprAST node)
+        protected override unsafe ExprAST VisitNumberExprAST(NumberExprAST node)
         {
             this.valueStack.Push(LLVM.ConstReal(LLVM.DoubleType(), node.Value));
             return node;
@@ -55,7 +57,7 @@
             return node;
         }
 
-        protected override ExprAST VisitBinaryExprAST(BinaryExprAST node)
+        protected override unsafe ExprAST VisitBinaryExprAST(BinaryExprAST node)
         {
             this.Visit(node.Lhs);
             this.Visit(node.Rhs);
@@ -68,18 +70,30 @@
             switch (node.NodeType)
             {
                 case ExprType.AddExpr:
-                    n = LLVM.BuildFAdd(this.builder, l, r, "addtmp");
+                {
+                    using var name = new MarshaledString("addtmp");
+                    n = LLVM.BuildFAdd(this.builder, l, r, name);
                     break;
+                }
                 case ExprType.SubtractExpr:
-                    n = LLVM.BuildFSub(this.builder, l, r, "subtmp");
+                {
+                    using var name = new MarshaledString("subtmp");
+                    n = LLVM.BuildFSub(this.builder, l, r, name);
                     break;
+                }
                 case ExprType.MultiplyExpr:
-                    n = LLVM.BuildFMul(this.builder, l, r, "multmp");
+                {
+                    using var name = new MarshaledString("multmp");
+                    n = LLVM.BuildFMul(this.builder, l, r, name);
                     break;
-                case ExprType.LessThanExpr:
+                }
+                case ExprType.LessThanExpr: {
                     // Convert bool 0/1 to double 0.0 or 1.0
-                    n = LLVM.BuildUIToFP(this.builder, LLVM.BuildFCmp(this.builder, LLVMRealPredicate.LLVMRealULT, l, r, "cmptmp"), LLVM.DoubleType(), "booltmp");
+                    using var cmptmp = new MarshaledString("cmptmp");
+                    using var booltmp = new MarshaledString("booltmp");
+                    n = LLVM.BuildUIToFP(this.builder, LLVM.BuildFCmp(this.builder, LLVMRealPredicate.LLVMRealULT, l, r, cmptmp), LLVM.DoubleType(), booltmp);
                     break;
+                }
                 default:
                     throw new Exception("invalid binary operator");
             }
@@ -88,10 +102,11 @@
             return node;
         }
 
-        protected override ExprAST VisitCallExprAST(CallExprAST node)
+        protected override unsafe ExprAST VisitCallExprAST(CallExprAST node)
         {
-            var calleeF = LLVM.GetNamedFunction(this.module, node.Callee);
-            if (calleeF.Pointer == IntPtr.Zero)
+            using var name = new MarshaledString(node.Callee);
+            var calleeF = LLVM.GetNamedFunction(this.module, name);
+            if (calleeF == (void*)IntPtr.Zero)
             {
                 throw new Exception("Unknown function referenced");
             }
@@ -109,22 +124,24 @@
                 argsV[i] = this.valueStack.Pop();
             }
 
-            valueStack.Push(LLVM.BuildCall(this.builder, calleeF, argsV, "calltmp"));
+            using var calltmp = new MarshaledString("calltmp");
+            valueStack.Push(LLVM.BuildCall2(this.builder, null, calleeF, argsV, argumentCount, calltmp));
 
             return node;
         }
 
-        protected override ExprAST VisitPrototypeAST(PrototypeAST node)
+        protected override unsafe ExprAST VisitPrototypeAST(PrototypeAST node)
         {
             // Make the function type:  double(double,double) etc.
             var argumentCount = (uint)node.Arguments.Count;
             var arguments = new LLVMTypeRef[Math.Max(argumentCount, 1)];
 
-            var function = LLVM.GetNamedFunction(this.module, node.Name);
+            using var name = new MarshaledString(node.Name);
+            var function = LLVM.GetNamedFunction(this.module, name);
 
             // If F conflicted, there was already something named 'Name'.  If it has a
             // body, don't allow redefinition or reextern.
-            if (function.Pointer != IntPtr.Zero)
+            if (function != (void *)IntPtr.Zero)
             {
                 // If F already has a body, reject this.
                 if (LLVM.CountBasicBlocks(function) != 0)
@@ -154,7 +171,8 @@
                 string argumentName = node.Arguments[i];
 
                 LLVMValueRef param = LLVM.GetParam(function, (uint)i);
-                LLVM.SetValueName(param, argumentName);
+                using var marshalledName = new MarshaledString(argumentName);
+                LLVM.SetValueName(param, marshalledName);
 
                 this.namedValues[argumentName] = param;
             }
@@ -163,7 +181,7 @@
             return node;
         }
 
-        protected override ExprAST VisitFunctionAST(FunctionAST node)
+        protected override unsafe ExprAST VisitFunctionAST(FunctionAST node)
         {
             this.namedValues.Clear();
 
@@ -172,7 +190,8 @@
             LLVMValueRef function = this.valueStack.Pop();
 
             // Create a new basic block to start insertion into.
-            LLVM.PositionBuilderAtEnd(this.builder, LLVM.AppendBasicBlock(function, "entry"));
+            using var entry = new MarshaledString("entry");
+            LLVM.PositionBuilderAtEnd(this.builder, LLVM.AppendBasicBlock(function, entry));
 
             try
             {
@@ -195,7 +214,7 @@
             return node;
         }
 
-        protected override ExprAST VisitIfExprAST(IfExpAST node)
+        protected override unsafe ExprAST VisitIfExprAST(IfExpAST node)
         {
             this.Visit(node.Condition);
             var condv = LLVM.BuildFCmp(this.builder, LLVMRealPredicate.LLVMRealONE, this.valueStack.Pop(), LLVM.ConstReal(LLVM.DoubleType(), 0.0), "ifcond");
@@ -245,7 +264,7 @@
             return node;
         }
 
-        protected override ExprAST VisitForExprAST(ForExprAST node)
+        protected override unsafe ExprAST VisitForExprAST(ForExprAST node)
         {
             // Output this as:
             //   ...
@@ -333,7 +352,7 @@
             LLVM.AddIncoming(variable, new []{nextVar}, new []{loopEndBB}, 1);
 
             // Restore the unshadowed variable.
-            if (oldVal.Pointer != IntPtr.Zero)
+            if (oldVal != (void *)IntPtr.Zero)
             {
                 namedValues[node.VarName] = oldVal;
             }
